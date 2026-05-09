@@ -145,9 +145,21 @@ const RecipeCard = memo(function RecipeCard({ recipe, onView, onEdit, index = 0 
 
           {/* Ingredients preview */}
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-300 line-clamp-2">
-            {recipe.ingredients.slice(0, 3).join(' • ')}
+            {recipe.ingredients.slice(0, 3).map(i => typeof i === 'string' ? i : i.name).join(' • ')}
             {recipe.ingredients.length > 3 && ' • ...'}
           </p>
+
+          {/* Nutrition preview */}
+          {recipe.nutrition && (
+            <div className="mt-3 flex items-center gap-3 text-xs">
+              <span className="px-2 py-1 bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400 rounded-full font-medium">
+                {Math.round(recipe.nutrition.calories / recipe.servings)} cal
+              </span>
+              <span className="px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full">
+                {Math.round(recipe.nutrition.protein / recipe.servings)}g protein
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Action buttons - always visible on mobile, hover on desktop */}

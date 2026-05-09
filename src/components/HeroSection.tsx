@@ -151,7 +151,7 @@ const HeroSection = memo(function HeroSection({ onViewRecipe }: HeroSectionProps
 
                 {/* Ingredients preview */}
                 <p className="text-sm text-gray-500 dark:text-gray-400 line-clamp-2 mb-4">
-                  {suggestedRecipe.ingredients.slice(0, 4).join(' • ')}
+                  {suggestedRecipe.ingredients.slice(0, 4).map(i => typeof i === 'string' ? i : i.name).join(' • ')}
                   {suggestedRecipe.ingredients.length > 4 && ' • ...'}
                 </p>
 

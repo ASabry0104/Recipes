@@ -2,6 +2,33 @@
 
 export type Category = 'Breakfast' | 'Lunch' | 'Dinner' | 'Dessert' | 'Snacks' | 'Drinks';
 
+// Nutrition data for a single ingredient
+export interface IngredientNutrition {
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber?: number;
+  sugar?: number;
+  sodium?: number;
+  cholesterol?: number;
+}
+
+// Complete nutrition data for a recipe
+export interface RecipeNutrition {
+  // Per serving values (manually entered or calculated)
+  calories: number;
+  protein: number;
+  carbs: number;
+  fat: number;
+  fiber?: number;
+  sugar?: number;
+  sodium?: number;
+  cholesterol?: number;
+  // Optional: per-ingredient nutrition data for auto-calculation
+  ingredientNutrition?: { [ingredient: string]: IngredientNutrition };
+}
+
 export interface Recipe {
   id: string;
   name: string;
@@ -9,13 +36,20 @@ export interface Recipe {
   cookTime: number;
   cookTimeUnit: 'minutes' | 'hours';
   servings: number;
-  ingredients: string[];
+  ingredients: IngredientWithNutrition[];
   steps: string[];
   tips?: string;
   image?: string;
   isFavorite: boolean;
   createdAt: number;
   lastCooked?: number;
+  nutrition?: RecipeNutrition;
+}
+
+// Ingredient with optional nutrition data
+export interface IngredientWithNutrition {
+  name: string;
+  nutrition?: IngredientNutrition;
 }
 
 export interface AppState {

@@ -149,7 +149,9 @@ export const useRecipeStore = create<RecipeStore>()(
             (recipe) =>
               recipe.name.toLowerCase().includes(query) ||
               recipe.category.toLowerCase().includes(query) ||
-              recipe.ingredients.some((ing) => ing.toLowerCase().includes(query))
+              recipe.ingredients.some((ing) => 
+                (typeof ing === 'string' ? ing : ing.name).toLowerCase().includes(query)
+              )
           );
         }
         

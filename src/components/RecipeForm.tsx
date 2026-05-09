@@ -1,6 +1,44 @@
 import { useState, useEffect, useCallback, memo } from 'react';
-import { Recipe, Category, CATEGORIES } from '../types';
+import { Recipe, Category, CATEGORIES, IngredientWithNutrition, RecipeNutrition } from '../types';
 import { useRecipeStore } from '../store/recipeStore';
+
+// Helper to calculate nutrition from ingredients
+const calculateNutrition = (ingredients: IngredientWithNutrition[]): RecipeNutrition | undefined => {
+  const hasNutrition = ingredients.some(ing => ing.nutrition);
+  if (!hasNutrition) return undefined;
+
+  const totals = ingredients.reduce(
+    (acc, ing) => {
+      if (ing.nutrition) {
+        acc.calories += ing.nutrition.calories || 0;
+        acc.protein += ing.nutrition.protein || 0;
+        acc.carbs += ing.nutrition.carbs || 0;
+        acc.fat += ing.nutrition.fat || 0;
+        acc.fiber += ing.nutrition.fiber || 0;
+        acc.sugar += ing.nutrition.sugar || 0;
+        acc.sodium += ing.nutrition.sodium || 0;
+        acc.cholesterol += ing.nutrition.cholesterol || 0;
+      }
+      return acc;
+    },
+    { calories: 0, protein: 0, carbs: 0, fat: 0, fiber: 0, sugar: 0, sodium: 0, cholesterol: 0 }
+  );
+
+  // Only include optional fields if they have values
+  const nutrition: RecipeNutrition = {
+    calories: Math.round(totals.calories),
+    protein: Math.round(totals.protein),
+    carbs: Math.round(totals.carbs),
+    fat: Math.round(totals.fat),
+  };
+
+  if (totals.fiber > 0) nutrition.fiber = Math.round(totals.fiber);
+  if (totals.sugar > 0) nutrition.sugar = Math.round(totals.sugar);
+  if (totals.sodium > 0) nutrition.sodium = Math.round(totals.sodium);
+  if (totals.cholesterol > 0) nutrition.cholesterol = Math.round(totals.cholesterol);
+
+  return nutrition;
+};
 
 interface RecipeFormProps {
   recipe?: Recipe | null;
@@ -17,10 +55,29 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
   const [cookTime, setCookTime] = useState(recipe?.cookTime || 30);
   const [cookTimeUnit, setCookTimeUnit] = useState<'minutes' | 'hours'>(recipe?.cookTimeUnit || 'minutes');
   const [servings, setServings] = useState(recipe?.servings || 4);
-  const [ingredientsText, setIngredientsText] = useState(recipe?.ingredients.join('\n') || '');
-  const [stepsText, setStepsText] = useState(recipe?.steps.join('\n') || '');
+
+  // Parse ingredients - handle both old format (string[]) and new format (IngredientWithNutrition[])
+  const parseIngredients = (ing: (string | IngredientWithNutrition)[]): IngredientWithNutrition[] => {
+    return ing.map(item => {
+      if (typeof item === 'string') {
+        return { name: item };
+      }
+      return item;
+    });
+  };
+
+  const [ingredients, setIngredients] = useState<IngredientWithNutrition[]>(() =>
+    parseIngredients(recipe?.ingredients || [])
+  );
+
+  const [steps, setSteps] = useState(recipe?.steps.join('\n') || '');
   const [tips, setTips] = useState(recipe?.tips || '');
   const [image, setImage] = useState(recipe?.image || '');
+
+  // Nutrition state
+  const [enableCustomNutrition, setEnableCustomNutrition] = useState(!!recipe?.nutrition);
+  const [nutrition, setNutrition] = useState<RecipeNutrition | undefined>(recipe?.nutrition);
+  const [autoCalculate, setAutoCalculate] = useState(!recipe?.nutrition);
 
   // Validation errors
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -38,6 +95,14 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
     };
   }, [onClose]);
 
+  // Calculate nutrition from ingredients
+  useEffect(() => {
+    if (autoCalculate) {
+      const calculated = calculateNutrition(ingredients);
+      setNutrition(calculated);
+    }
+  }, [ingredients, autoCalculate]);
+
   // Validate form
   const validateForm = useCallback(() => {
     const newErrors: Record<string, string> = {};
@@ -46,11 +111,11 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
       newErrors.name = 'Recipe name is required';
     }
 
-    if (!ingredientsText.trim()) {
+    if (ingredients.length === 0 || ingredients.every(i => !i.name.trim())) {
       newErrors.ingredients = 'At least one ingredient is required';
     }
 
-    if (!stepsText.trim()) {
+    if (!steps.trim()) {
       newErrors.steps = 'At least one step is required';
     }
 
@@ -64,18 +129,16 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
-  }, [name, ingredientsText, stepsText, cookTime, servings]);
+  }, [name, ingredients, steps, cookTime, servings]);
 
   // Handle image upload
   const handleImageChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Validate file type
       if (!file.type.startsWith('image/')) {
         setErrors((prev) => ({ ...prev, image: 'Please select an image file' }));
         return;
       }
-      // Validate file size (max 5MB)
       if (file.size > 5 * 1024 * 1024) {
         setErrors((prev) => ({ ...prev, image: 'Image must be smaller than 5MB' }));
         return;
@@ -93,7 +156,6 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
     }
   }, []);
 
-  // Remove image
   const handleRemoveImage = useCallback(() => {
     setImage('');
   }, []);
@@ -105,16 +167,7 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
 
       if (!validateForm()) return;
 
-      // Parse ingredients and steps
-      const ingredients = ingredientsText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
-
-      const steps = stepsText
-        .split('\n')
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0);
+      const parsedIngredients = ingredients.map(ing => ({ name: ing.name.trim(), nutrition: ing.nutrition }));
 
       const recipeData = {
         name: name.trim(),
@@ -122,22 +175,50 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
         cookTime,
         cookTimeUnit,
         servings,
-        ingredients,
-        steps,
+        ingredients: parsedIngredients,
+        steps: steps.split('\n').map(s => s.trim()).filter(s => s.length > 0),
         tips: tips.trim() || undefined,
         image: image || undefined,
+        nutrition: nutrition,
       };
 
       if (isEditing && recipe) {
         updateRecipe(recipe.id, recipeData);
       } else {
-        addRecipe(recipeData);
+        addRecipe(recipeData as Omit<Recipe, 'id' | 'createdAt' | 'isFavorite' | 'lastCooked'>);
       }
 
       onClose();
     },
-    [validateForm, ingredientsText, stepsText, name, category, cookTime, cookTimeUnit, servings, tips, image, isEditing, recipe, updateRecipe, addRecipe, onClose]
+    [validateForm, name, category, cookTime, cookTimeUnit, servings, ingredients, steps, tips, image, nutrition, isEditing, recipe, updateRecipe, addRecipe, onClose]
   );
+
+  // Update single ingredient
+  const updateIngredient = (index: number, field: 'name' | 'calories' | 'protein' | 'carbs' | 'fat', value: string | number) => {
+    setIngredients(prev => {
+      const updated = [...prev];
+      if (field === 'name') {
+        updated[index] = { ...updated[index], name: value as string };
+      } else {
+        const currentNutrition = updated[index].nutrition || { calories: 0, protein: 0, carbs: 0, fat: 0 };
+        updated[index] = {
+          ...updated[index],
+          nutrition: { ...currentNutrition, [field]: value }
+        };
+      }
+      return updated;
+    });
+  };
+
+  // Add new ingredient row
+  const addIngredient = () => {
+    setIngredients(prev => [...prev, { name: '' }]);
+  };
+
+  // Remove ingredient row
+  const removeIngredient = (index: number) => {
+    setIngredients(prev => prev.filter((_, i) => i !== index));
+  };
 
   return (
     <div
@@ -194,7 +275,6 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
 
             {/* Category and image row */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Category */}
               <div>
                 <label htmlFor="category" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                   Category *
@@ -242,7 +322,6 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
                     <input type="file" accept="image/*" onChange={handleImageChange} className="hidden" />
                   </label>
                 )}
-                {errors.image && <p className="mt-1 text-sm text-red-500">{errors.image}</p>}
               </div>
             </div>
 
@@ -310,28 +389,110 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
               </div>
             </div>
 
-            {/* Ingredients */}
+            {/* Ingredients with nutrition */}
             <div>
-              <label htmlFor="ingredients" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Ingredients *
-              </label>
-              <textarea
-                id="ingredients"
-                value={ingredientsText}
-                onChange={(e) => setIngredientsText(e.target.value)}
-                placeholder="Enter one ingredient per line:&#10;2 cups all-purpose flour&#10;1 tsp baking powder&#10;½ cup sugar"
-                rows={5}
-                className={`
-                  w-full px-4 py-3 rounded-xl
-                  bg-gray-50 dark:bg-gray-700
-                  border border-gray-200 dark:border-gray-600
-                  text-gray-900 dark:text-white
-                  placeholder-gray-400 dark:placeholder-gray-500
-                  focus:outline-none focus:ring-2 focus:ring-orange-500
-                  resize-none transition-all
-                  ${errors.ingredients ? 'border-red-500' : ''}
-                `}
-              />
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Ingredients *
+                </label>
+                <button
+                  type="button"
+                  onClick={addIngredient}
+                  className="text-sm text-orange-500 hover:text-orange-600 font-medium flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                  Add Ingredient
+                </button>
+              </div>
+
+              {/* Nutrition toggle */}
+              <div className="mb-3 p-3 bg-amber-50 dark:bg-amber-900/20 rounded-xl">
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={enableCustomNutrition}
+                    onChange={(e) => {
+                      setEnableCustomNutrition(e.target.checked);
+                      setAutoCalculate(e.target.checked);
+                    }}
+                    className="w-4 h-4 rounded border-gray-300 text-orange-500 focus:ring-orange-500"
+                  />
+                  <span className="text-amber-800 dark:text-amber-200 font-medium">
+                    Add nutrition information
+                  </span>
+                </label>
+              </div>
+
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {ingredients.map((ing, index) => (
+                  <div key={index} className="flex gap-2 items-start">
+                    <input
+                      type="text"
+                      value={ing.name}
+                      onChange={(e) => updateIngredient(index, 'name', e.target.value)}
+                      placeholder={`Ingredient ${index + 1}`}
+                      className="flex-1 px-3 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    />
+                    {enableCustomNutrition && (
+                      <>
+                        <input
+                          type="number"
+                          value={ing.nutrition?.calories || ''}
+                          onChange={(e) => updateIngredient(index, 'calories', parseFloat(e.target.value) || 0)}
+                          placeholder="Cal"
+                          className="w-16 px-2 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                        <input
+                          type="number"
+                          value={ing.nutrition?.protein || ''}
+                          onChange={(e) => updateIngredient(index, 'protein', parseFloat(e.target.value) || 0)}
+                          placeholder="P"
+                          className="w-14 px-2 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                        <input
+                          type="number"
+                          value={ing.nutrition?.carbs || ''}
+                          onChange={(e) => updateIngredient(index, 'carbs', parseFloat(e.target.value) || 0)}
+                          placeholder="C"
+                          className="w-14 px-2 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                        <input
+                          type="number"
+                          value={ing.nutrition?.fat || ''}
+                          onChange={(e) => updateIngredient(index, 'fat', parseFloat(e.target.value) || 0)}
+                          placeholder="F"
+                          className="w-14 px-2 py-2 rounded-lg bg-gray-50 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 text-gray-900 dark:text-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                        />
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removeIngredient(index)}
+                      className="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                {ingredients.length === 0 && (
+                  <button
+                    type="button"
+                    onClick={addIngredient}
+                    className="w-full py-4 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-xl text-gray-500 dark:text-gray-400 hover:border-orange-400 hover:text-orange-500 transition-colors"
+                  >
+                    + Add your first ingredient
+                  </button>
+                )}
+              </div>
+              {enableCustomNutrition && (
+                <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                  💡 Enter calories, protein (g), carbs (g), and fat (g) for each ingredient. Values will be auto-calculated.
+                </p>
+              )}
               {errors.ingredients && <p className="mt-1 text-sm text-red-500">{errors.ingredients}</p>}
             </div>
 
@@ -342,8 +503,8 @@ const RecipeForm = memo(function RecipeForm({ recipe, onClose }: RecipeFormProps
               </label>
               <textarea
                 id="steps"
-                value={stepsText}
-                onChange={(e) => setStepsText(e.target.value)}
+                value={steps}
+                onChange={(e) => setSteps(e.target.value)}
                 placeholder="Enter each step on a new line:&#10;Preheat oven to 350°F&#10;Mix dry ingredients together&#10;Add wet ingredients and stir"
                 rows={6}
                 className={`
